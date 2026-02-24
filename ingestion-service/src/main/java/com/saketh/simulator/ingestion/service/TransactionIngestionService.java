@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 public class TransactionIngestionService {
 
+    private final KafkaPublisherService kafkaPublisher;
+
     // In-memory counters for statistics (will be replaced with proper metrics)
     private final AtomicLong totalReceived = new AtomicLong(0);
     private final AtomicLong totalPublished = new AtomicLong(0);
@@ -40,14 +42,20 @@ public class TransactionIngestionService {
         // Validate transaction (basic validation)
         validateTransaction(transaction);
         
-        // TODO: Publish to Kafka (will be implemented in next phase)
-        // For now, just log and simulate success
-        log.info("Transaction {} ready for publishing to Kafka", 
-            transaction.getTransactionId());
+        // Publish to Kafka asynchronously
+        try {
+            kafkaPublisher.publishTransaction(transaction);
+            totalPublished.incrementAndGet();
+            log.info("Transaction {} published to Kafka successfully", 
+                transaction.getTransactionId());
+        } catch (Exception e) {
+            totalFailed.incrementAndGet();
+            log.error("Failed to publish transaction {} to Kafka: {}", 
+                transaction.getTransactionId(), e.getMessage(), e);
+            throw new RuntimeException("Failed to publish transaction: " + e.getMessage(), e);
+        }
         
-        totalPublished.incrementAndGet();
-        
-        return "Transaction accepted for processing";
+        return "Transaction accepted and published for processing";
     }
 
     /**
@@ -122,6 +130,8 @@ public class TransactionIngestionService {
         stats.put("totalReceived", totalReceived.get());
         stats.put("totalPublished", totalPublished.get());
         stats.put("totalFailed", totalFailed.get());
+        stats.put("kafkaPublished", kafkaPublisher.getPublishedCount());
+        stats.put("kafkaFailed", kafkaPublisher.getFailedCount());
         stats.put("successRate", calculateSuccessRate());
         stats.put("timestamp", LocalDateTime.now().toString());
         
